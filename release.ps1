@@ -93,7 +93,7 @@ Write-Host "=== Released $newTag ===" -ForegroundColor Green
 Write-Host "Backup:   $zipPath"
 Write-Host "Changelog:$changelogFile"
 if ($pushed) {
-  Write-Host "GitHub:   已推送 origin"
+  Write-Host 'GitHub:   pushed to origin'
 } else {
-  Write-Host 'GitHub:   未配置远程仓库，跳过推送（git remote add origin <url> 后手动 push）'
+  Write-Host 'GitHub:   no remote origin, skipped push (run: git remote add origin <url>)'
 }

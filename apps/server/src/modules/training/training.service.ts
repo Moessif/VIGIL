@@ -181,10 +181,17 @@ export class TrainingService {
   /** 实时通话中：快速识别用户一句话的意图（挂断等），使用 DeepSeek v4 Flash */
   async classifyRealtimeIntent(text: string): Promise<{ intent: string }> {
     if (this.ai.mode === 'real') {
-      const r = await this.ai.classifyQuick(
-        text,
-        '判断用户这句话的意图，只输出 JSON：{"intent":"hangup|transfer|report|block|none"}。' +
-          '用户想挂断/结束通话/再见/拜拜/先这样/不聊了 → hangup；同意转账/给钱/垫付 → transfer；报警/110 → report；拉黑/举报 → block；其他 → none。',
+      const r = await this.ai.directorChat(
+        [
+          {
+            role: 'system',
+            content:
+              '判断用户这句话的意图，只输出 JSON：{"intent":"hangup|transfer|report|block|none"}。' +
+              '用户想挂断/结束通话/再见/拜拜/先这样/不聊了 → hangup；同意转账/给钱/垫付 → transfer；报警/110 → report；拉黑/举报 → block；其他 → none。',
+          },
+          { role: 'user', content: text },
+        ],
+        { temperature: 0, json: true },
       );
       if (r) {
         try {
@@ -453,7 +460,7 @@ export class TrainingService {
   ): Promise<{ trigger?: string; beatId?: string }> {
     const t = transcript || '';
     if (this.ai.mode === 'real') {
-      const aiResult = await this.ai.chat(
+      const aiResult = await this.ai.directorChat(
         [
           {
             role: 'system',
@@ -521,7 +528,7 @@ export class TrainingService {
       if (idx >= 0) return { optionIdx: idx };
     }
     if (this.ai.mode === 'real') {
-      const aiResult = await this.ai.chat(
+      const aiResult = await this.ai.directorChat(
         [
           {
             role: 'system',

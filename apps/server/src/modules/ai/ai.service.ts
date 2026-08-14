@@ -31,24 +31,21 @@ export class AiService {
     }
   }
 
-  /** 快速意图识别：使用 DeepSeek v4 Flash（低延迟），用于实时通话中的"是否要挂断"等判定 */
-  async classifyQuick(text: string, instruction: string): Promise<string> {
+  /** 剧情导演快速推理：默认用 DeepSeek V4 Flash（低延迟），用于剧情分类/决策 */
+  async directorChat(messages: ChatMessage[], opts: ChatOpts = {}): Promise<string> {
     if (env.aiMode !== 'real') return '';
     const p = this.cfg.provider('main_chat');
     const key = this.cfg.apiKey('main_chat');
     if (!key) return '';
     try {
       return await deepseekChat(
-        [
-          { role: 'system', content: instruction },
-          { role: 'user', content: text },
-        ],
-        { baseUrl: p.base_url, apiKey: key, model: 'deepseek-v4-flash' },
-        { temperature: 0, json: true },
+        messages,
+        { baseUrl: p.base_url, apiKey: key, model: env.directorModel },
+        opts,
       );
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error('[AI classifyQuick]', (e as Error).message);
+      console.error('[AI directorChat]', (e as Error).message);
       return '';
     }
   }

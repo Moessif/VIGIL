@@ -23,6 +23,8 @@ export const env = {
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
   deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
   mainModel: process.env.MAIN_MODEL || 'deepseek-v4-pro',
+  // 剧情导演（分类/决策）用 Flash 低延迟模型；复盘等生成式任务仍用 mainModel
+  directorModel: process.env.DIRECTOR_MODEL || 'deepseek-v4-flash',
 
   qwenApiKey: process.env.QWEN_API_KEY || '',
   qwenBaseUrl: process.env.QWEN_BASE_URL || 'https://dashscope.aliyuncs.com',
