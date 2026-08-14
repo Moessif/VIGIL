@@ -32,6 +32,7 @@ export function attachRealtimeGateway(server: Server, opts: RealtimeGatewayOptio
 
     let qwenOpen = false;
     let openingTriggered = false;
+    const seenEventTypes = new Set<string>();
     const sendBrowser = (data: string | Buffer) => {
       if (browserWs.readyState === WebSocket.OPEN) browserWs.send(data);
     };
@@ -67,6 +68,12 @@ export function attachRealtimeGateway(server: Server, opts: RealtimeGatewayOptio
       // 会话配置生效后，注入触发消息让 AI 主动开口说开场白（否则模型在无输入时不会说话）
       try {
         const j = JSON.parse(text);
+        // 调试：每个事件类型只打印一次，便于排查转写事件名
+        if (!seenEventTypes.has(j.type)) {
+          seenEventTypes.add(j.type);
+          // eslint-disable-next-line no-console
+          console.log(`[realtime] 事件类型: ${j.type}`);
+        }
         if (j.type === 'session.updated' && !openingTriggered) {
           openingTriggered = true;
           qwenWs.send(

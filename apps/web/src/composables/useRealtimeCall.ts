@@ -152,23 +152,17 @@ export function useRealtimeCall() {
             // 对方（AI）的转写
             if (t === 'response.audio_transcript.delta') addDelta('ai', j.delta || '');
             else if (t === 'response.audio_transcript.done') endTurn();
+            else if (t === 'response.done') endTurn();
             // 用户（我）的转写（ASR）——增量与完整事件都兼容，只增不减
             else if (t === 'conversation.item.input_audio_transcription.delta') addDelta('user', j.delta || j.text || '');
             else if (t === 'conversation.item.input_audio_transcription.completed') {
+              // 当前气泡仍在本轮用户 turn 内则补齐，否则新建（避免与 AI 回复错位时重复建气泡）
               fixLastUserBubble(String(j.transcript || j.text || j.delta || ''));
               endTurn();
-            } else if (t === 'input_audio_buffer.committed') endTurn();
-            else if (t === 'response.done') endTurn();
-            // 兜底：部分实现把用户转写放在 conversation.item.created 的 item.content 中
-            else if (t === 'conversation.item.created') {
-              const content = j.item?.content;
-              if (Array.isArray(content)) {
-                for (const c of content) {
-                  const txt = c && typeof c === 'object' ? String(c.transcript || c.text || '') : '';
-                  if (txt) fixLastUserBubble(txt);
-                }
-              }
             }
+            // 注意：
+            // - input_audio_buffer.committed 不再结束轮次（保持本轮，等 completed 来补齐，避免气泡错位）
+            // - conversation.item.created 不再处理（网关注入的"开场触发语"也会触发该事件，误伤用户气泡）
 
             // 千问实时语音的音频以 base64 内嵌在 JSON 事件中，解码为 PCM16 回放
             if (t === 'response.audio.delta' && j.delta) {
