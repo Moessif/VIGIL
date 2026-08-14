@@ -75,6 +75,14 @@ export function useRealtimeCall() {
     bubbles.value.filter((b) => b.role === 'ai').map((b) => b.text).join(''),
   );
 
+  function removeTrailingEmptyUserBubble() {
+    const last = bubbles.value[bubbles.value.length - 1];
+    if (last && last.role === 'user' && !last.text.trim()) {
+      bubbles.value.pop();
+      if (currentRole === 'user') currentRole = null;
+    }
+  }
+
   function addDelta(role: 'ai' | 'user', delta: string) {
     if (!delta) return;
     // 离散气泡：同一角色连续增量追加到最后一个气泡，角色切换则新建气泡
@@ -82,8 +90,18 @@ export function useRealtimeCall() {
     if (currentRole === role && last && last.role === role) {
       last.text += delta;
     } else {
+      if (role === 'ai') removeTrailingEmptyUserBubble();
       bubbles.value.push({ role, text: delta });
       currentRole = role;
+    }
+  }
+
+  /** 用户开口瞬间预建空气泡占位，锁定位置（之后增量/完整转写只往里填） */
+  function startUserTurn() {
+    if (currentRole !== 'user') {
+      removeTrailingEmptyUserBubble();
+      bubbles.value.push({ role: 'user', text: '' });
+      currentRole = 'user';
     }
   }
 
@@ -93,6 +111,9 @@ export function useRealtimeCall() {
     const last = bubbles.value[bubbles.value.length - 1];
     if (currentRole === 'user' && last && last.role === 'user') {
       if (full.length > last.text.length) last.text = full;
+    } else if (last && last.role === 'ai') {
+      // 完整转写晚于 AI 回复到达：插入到该 AI 气泡之前（时序上用户先说）
+      bubbles.value.splice(bubbles.value.length - 1, 0, { role: 'user', text: full });
     } else {
       bubbles.value.push({ role: 'user', text: full });
     }
@@ -153,11 +174,17 @@ export function useRealtimeCall() {
             if (t === 'response.audio_transcript.delta') addDelta('ai', j.delta || '');
             else if (t === 'response.audio_transcript.done') endTurn();
             else if (t === 'response.done') endTurn();
+            // 用户（我）开口 → 预建空气泡占位，锁定位置
+            else if (t === 'input_audio_buffer.speech_started') startUserTurn();
             // 用户（我）的转写（ASR）——增量与完整事件都兼容，只增不减
-            else if (t === 'conversation.item.input_audio_transcription.delta') addDelta('user', j.delta || j.text || '');
-            else if (t === 'conversation.item.input_audio_transcription.completed') {
-              // 当前气泡仍在本轮用户 turn 内则补齐，否则新建（避免与 AI 回复错位时重复建气泡）
-              fixLastUserBubble(String(j.transcript || j.text || j.delta || ''));
+            else if (t === 'conversation.item.input_audio_transcription.delta') {
+              const d = typeof j.delta === 'string' ? j.delta : typeof j.text === 'string' ? j.text : '';
+              if (d) addDelta('user', d);
+            } else if (t === 'conversation.item.input_audio_transcription.completed') {
+              const full = String(
+                typeof j.transcript === 'string' ? j.transcript : typeof j.text === 'string' ? j.text : j.delta || '',
+              );
+              fixLastUserBubble(full);
               endTurn();
             }
             // 注意：

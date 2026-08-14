@@ -39,6 +39,17 @@ export interface EndingDef {
   description: string;
 }
 
+/** 通讯录联系人：通话中可在右侧面板选择拨打 */
+export interface Contact {
+  key: string;
+  name: string; // 显示名，如 "市人民医院"
+  description?: string; // 备注，如 "急诊科"
+  persona: string; // 接听后该角色的设定（含重要事实）
+  voice?: string; // 语义音色 key
+  opening: string; // 接听后的开场白
+  voiceParams?: VoiceParams;
+}
+
 export interface TriggerDef {
   label: string;
   ending?: string; // victim | defended
@@ -58,4 +69,6 @@ export interface ScenarioScript {
   beats: Beat[];
   endings: Record<string, EndingDef>;
   triggers: Record<string, TriggerDef>;
+  /** 可选：通话界面右侧的通讯录，用户可点选拨打 */
+  contacts?: Contact[];
 }

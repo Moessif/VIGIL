@@ -33,6 +33,7 @@ export function attachRealtimeGateway(server: Server, opts: RealtimeGatewayOptio
     let qwenOpen = false;
     let openingTriggered = false;
     const seenEventTypes = new Set<string>();
+    let seenTranscriptPayload = false;
     const sendBrowser = (data: string | Buffer) => {
       if (browserWs.readyState === WebSocket.OPEN) browserWs.send(data);
     };
@@ -73,6 +74,16 @@ export function attachRealtimeGateway(server: Server, opts: RealtimeGatewayOptio
           seenEventTypes.add(j.type);
           // eslint-disable-next-line no-console
           console.log(`[realtime] 事件类型: ${j.type}`);
+        }
+        // 调试：打印首个用户转写事件的完整内容，便于确认字段名
+        if (
+          !seenTranscriptPayload &&
+          (j.type === 'conversation.item.input_audio_transcription.delta' ||
+            j.type === 'conversation.item.input_audio_transcription.completed')
+        ) {
+          seenTranscriptPayload = true;
+          // eslint-disable-next-line no-console
+          console.log(`[realtime] 用户转写事件示例(${j.type}):`, JSON.stringify(j).slice(0, 400));
         }
         if (j.type === 'session.updated' && !openingTriggered) {
           openingTriggered = true;

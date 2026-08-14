@@ -580,6 +580,8 @@ export class TrainingService {
         voiceParams: beat.voiceParams,
         persona: script.characters[beat.speaker]?.persona,
         voice: script.characters[beat.speaker]?.voice,
+        // 通讯录（通话界面右侧可拨打）
+        contacts: script.contacts ?? [],
       },
     });
   }

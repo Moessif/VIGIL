@@ -21,6 +21,11 @@ export const SEED_SCENARIOS: ScenarioScript[] = [
         persona: '正常、疑惑的妈妈。重要事实：她本人安然无恙，正在家里，今天根本没有出车祸，也没去过医院。',
         voice: 'female_middle',
       },
+      police: {
+        name: '110 接警员',
+        persona: '冷静、专业的 110 接警员。会受理报警、记录警情、安抚报警人，并告知会安排出警。',
+        voice: 'female_middle',
+      },
     },
     opening: {
       speaker: 'mom',
@@ -104,6 +109,35 @@ export const SEED_SCENARIOS: ScenarioScript[] = [
       report: { label: '拨打110报警', ending: 'defended', dimension: 'emergencyResponse', delta: 40 },
       block: { label: '拉黑举报', ending: 'defended', dimension: 'emergencyResponse', delta: 30 },
     },
+    contacts: [
+      {
+        key: 'realmom',
+        name: '妈妈（常用号码）',
+        description: '家庭号码',
+        persona: '正常、疑惑的妈妈。重要事实：她本人安然无恙，正在家里，今天根本没有出车祸，也没去过医院。',
+        voice: 'female_middle',
+        opening: '喂？孩子，怎么啦？',
+        voiceParams: { tone: 'normal' },
+      },
+      {
+        key: 'hospital',
+        name: '市人民医院',
+        description: '急诊科',
+        persona: '冷静、公事公办的医院工作人员。重要事实：今天急诊科没有收治任何车祸病人。',
+        voice: 'female_middle',
+        opening: '您好，这里是市人民医院急诊科，请问有什么可以帮您？',
+        voiceParams: { tone: 'calm' },
+      },
+      {
+        key: 'police',
+        name: '110 报警',
+        description: '报警电话',
+        persona: '冷静、专业的 110 接警员。会受理报警、记录警情、安抚报警人，并告知会安排出警。',
+        voice: 'female_middle',
+        opening: '您好，这里是 110 接警中心，请问有什么紧急情况？',
+        voiceParams: { tone: 'calm' },
+      },
+    ],
   },
   {
     id: 'scn_refund',

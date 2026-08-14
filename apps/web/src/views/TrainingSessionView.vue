@@ -8,6 +8,7 @@ import { ABILITY_DIMENSIONS, ABILITY_LABELS } from '@police/shared';
 import type {
   AbilityScores,
   ChoiceOption,
+  Contact,
   EndingResult,
   TrainingMessage,
 } from '@police/shared';
@@ -135,10 +136,15 @@ async function run(fn: () => Promise<void>) {
   }
 }
 
+const callContacts = ref<Contact[]>([]);
+const showContacts = ref(false);
+
 function answerCall() {
   const call = incomingCall.value;
   if (!call) return;
   callerName.value = call.speaker || '对方';
+  callContacts.value = (call.meta?.contacts as Contact[]) || [];
+  showContacts.value = false;
   incomingCall.value = null;
   // 不再播放预生成的 TTS（避免被麦克风回采造成回声/不同步）。
   // 改由实时语音 AI 自己开口说开场白，并在完整情境上下文下继续对话。
@@ -164,6 +170,33 @@ function buildCallInstructions(call: TrainingMessage): string {
     `请先用「${tone}」的语气说出开场白，然后继续以该角色身份与我进行实时语音对话，按角色设定如实、自然地回应。`,
   ];
   return parts.filter(Boolean).join('\n');
+}
+
+function buildContactInstructions(c: Contact): string {
+  const tone = c.voiceParams?.tone || '自然';
+  const parts = [
+    '你正在一场沉浸式反诈情景训练中扮演一个角色，请全程入戏、不要跳出角色。',
+    scenarioTitle.value
+      ? `情景：${scenarioTitle.value}${fraudType.value ? `（${fraudType.value}）` : ''}`
+      : '',
+    `你的角色：${c.name}。`,
+    c.persona ? `角色设定（务必遵守）：${c.persona}。` : '',
+    `开场白：「${c.opening}」`,
+    `请先用「${tone}」的语气说出开场白，然后继续以该角色身份与我进行实时语音对话，按角色设定如实、自然地回应。`,
+  ];
+  return parts.filter(Boolean).join('\n');
+}
+
+/** 通讯录拨打：切换当前通话到所选联系人 */
+function dialContact(c: Contact) {
+  if (!rtActive.value && !incomingCall.value) return;
+  showContacts.value = false;
+  callerName.value = c.name;
+  rtStop();
+  rtStart({
+    instructions: buildContactInstructions(c),
+    voice: c.voice || undefined,
+  });
 }
 
 const callStartAt = ref(0);
@@ -494,30 +527,64 @@ onMounted(startSession);
 
     <!-- 实时语音通话中（手机通话式界面） -->
     <div v-if="rtActive" class="fixed inset-0 z-40 flex flex-col bg-slate-900 text-white">
-      <!-- 顶部：来电人 + 计时 -->
-      <div class="pt-14 pb-6 text-center shrink-0">
+      <!-- 顶部：来电人 + 计时 + 通讯录按钮 -->
+      <div class="relative pt-14 pb-6 text-center shrink-0">
         <div class="w-20 h-20 mx-auto rounded-full bg-slate-700/60 flex items-center justify-center text-4xl">📞</div>
         <div class="mt-4 text-2xl font-bold">{{ callerName || '对方' }}</div>
         <div class="mt-1 text-sm text-slate-400">{{ callElapsed }}</div>
+        <button
+          v-if="callContacts.length"
+          class="absolute top-6 right-5 px-3 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-600 text-sm"
+          @click="showContacts = !showContacts"
+        >
+          📖 通讯录
+        </button>
       </div>
 
-      <!-- 中部：双方发言（离散气泡） -->
-      <div class="flex-1 overflow-y-auto px-5 pb-4 space-y-3 max-w-lg w-full mx-auto">
-        <div v-for="(b, i) in rtBubbles" :key="i" class="fade-up" :class="b.role === 'ai' ? 'text-left' : 'text-right'">
-          <div class="text-xs mb-1" :class="b.role === 'ai' ? 'text-slate-400' : 'text-blue-400'">
-            {{ b.role === 'ai' ? '对方' : '你' }}
+      <div class="flex-1 flex min-h-0">
+        <!-- 主区：双方发言（离散气泡） -->
+        <div class="flex-1 overflow-y-auto px-5 pb-4 space-y-3 max-w-lg w-full mx-auto">
+          <div v-for="(b, i) in rtBubbles" :key="i" class="fade-up" :class="b.role === 'ai' ? 'text-left' : 'text-right'">
+            <div class="text-xs mb-1" :class="b.role === 'ai' ? 'text-slate-400' : 'text-blue-400'">
+              {{ b.role === 'ai' ? '对方' : '你' }}
+            </div>
+            <div
+              class="inline-block text-left px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap rounded-2xl"
+              :class="b.role === 'ai' ? 'bg-slate-800 rounded-tl-sm' : 'bg-blue-600 rounded-tr-sm'"
+            >
+              {{ b.text }}
+            </div>
           </div>
-          <div
-            class="inline-block text-left px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap rounded-2xl"
-            :class="b.role === 'ai' ? 'bg-slate-800 rounded-tl-sm' : 'bg-blue-600 rounded-tr-sm'"
-          >
-            {{ b.text }}
+          <div v-if="rtBubbles.length === 0" class="pt-10 text-center text-sm text-slate-500">
+            正在通话中，请直接说话（可随时打断对方）…
           </div>
+          <div v-if="rtError" class="text-center text-xs text-red-400">{{ rtError }}</div>
         </div>
-        <div v-if="rtBubbles.length === 0" class="pt-10 text-center text-sm text-slate-500">
-          正在通话中，请直接说话（可随时打断对方）…
-        </div>
-        <div v-if="rtError" class="text-center text-xs text-red-400">{{ rtError }}</div>
+
+        <!-- 右侧：通讯录（可拨打切换通话） -->
+        <aside
+          v-if="showContacts"
+          class="w-72 shrink-0 border-l border-slate-700/60 overflow-y-auto p-4 space-y-3 bg-slate-900/60"
+        >
+          <div class="text-sm font-semibold text-slate-300 flex items-center justify-between">
+            通讯录
+            <button class="text-slate-400 hover:text-white" @click="showContacts = false">✕</button>
+          </div>
+          <div v-for="c in callContacts" :key="c.key" class="bg-slate-800/70 rounded-xl p-3 fade-up">
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="text-sm font-medium truncate">{{ c.name }}</div>
+                <div v-if="c.description" class="text-xs text-slate-400 truncate">{{ c.description }}</div>
+              </div>
+              <button
+                class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-medium"
+                @click="dialContact(c)"
+              >
+                拨打
+              </button>
+            </div>
+          </div>
+        </aside>
       </div>
 
       <!-- 底部：挂断按钮 -->
