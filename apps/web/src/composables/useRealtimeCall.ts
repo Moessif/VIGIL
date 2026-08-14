@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 // 浏览器麦克风 → PCM16 采集处理器
 const CAPTURE_PROCESSOR = `
@@ -55,8 +55,6 @@ export function useRealtimeCall() {
   const isActive = ref(false);
   const connected = ref(false);
   const bubbles = ref<CallBubble[]>([]);
-  const userTranscript = ref('');
-  const aiTranscript = ref('');
   const error = ref('');
 
   let currentRole: 'ai' | 'user' | null = null;
@@ -69,10 +67,16 @@ export function useRealtimeCall() {
   let captureNode: AudioWorkletNode | null = null;
   let playbackNode: AudioWorkletNode | null = null;
 
+  // 由气泡推导转写（保证气泡与转写永远一致）
+  const userTranscript = computed(() =>
+    bubbles.value.filter((b) => b.role === 'user').map((b) => b.text).join(''),
+  );
+  const aiTranscript = computed(() =>
+    bubbles.value.filter((b) => b.role === 'ai').map((b) => b.text).join(''),
+  );
+
   function addDelta(role: 'ai' | 'user', delta: string) {
     if (!delta) return;
-    if (role === 'ai') aiTranscript.value += delta;
-    else userTranscript.value += delta;
     // 离散气泡：同一角色连续增量追加到最后一个气泡，角色切换则新建气泡
     const last = bubbles.value[bubbles.value.length - 1];
     if (currentRole === role && last && last.role === role) {
@@ -83,15 +87,15 @@ export function useRealtimeCall() {
     }
   }
 
-  function overwriteLast(role: 'ai' | 'user', text: string) {
-    if (!text) return;
-    for (let i = bubbles.value.length - 1; i >= 0; i--) {
-      if (bubbles.value[i].role === role) {
-        bubbles.value[i] = { role, text };
-        return;
-      }
+  /** 用完整转写补齐当前用户气泡（只增不减，绝不覆盖丢失文字） */
+  function fixLastUserBubble(full: string) {
+    if (!full) return;
+    const last = bubbles.value[bubbles.value.length - 1];
+    if (currentRole === 'user' && last && last.role === 'user') {
+      if (full.length > last.text.length) last.text = full;
+    } else {
+      bubbles.value.push({ role: 'user', text: full });
     }
-    bubbles.value.push({ role, text });
   }
 
   function endTurn() {
@@ -101,8 +105,6 @@ export function useRealtimeCall() {
   async function start(opts: { instructions: string; voice?: string }) {
     stop();
     error.value = '';
-    userTranscript.value = '';
-    aiTranscript.value = '';
     bubbles.value = [];
     currentRole = null;
     try {
@@ -150,13 +152,23 @@ export function useRealtimeCall() {
             // 对方（AI）的转写
             if (t === 'response.audio_transcript.delta') addDelta('ai', j.delta || '');
             else if (t === 'response.audio_transcript.done') endTurn();
-            // 用户（我）的转写（ASR）——兼容多种事件名
-            else if (t === 'conversation.item.input_audio_transcription.delta') addDelta('user', j.delta || '');
+            // 用户（我）的转写（ASR）——增量与完整事件都兼容，只增不减
+            else if (t === 'conversation.item.input_audio_transcription.delta') addDelta('user', j.delta || j.text || '');
             else if (t === 'conversation.item.input_audio_transcription.completed') {
-              overwriteLast('user', j.transcript || '');
+              fixLastUserBubble(String(j.transcript || j.text || j.delta || ''));
               endTurn();
             } else if (t === 'input_audio_buffer.committed') endTurn();
             else if (t === 'response.done') endTurn();
+            // 兜底：部分实现把用户转写放在 conversation.item.created 的 item.content 中
+            else if (t === 'conversation.item.created') {
+              const content = j.item?.content;
+              if (Array.isArray(content)) {
+                for (const c of content) {
+                  const txt = c && typeof c === 'object' ? String(c.transcript || c.text || '') : '';
+                  if (txt) fixLastUserBubble(txt);
+                }
+              }
+            }
 
             // 千问实时语音的音频以 base64 内嵌在 JSON 事件中，解码为 PCM16 回放
             if (t === 'response.audio.delta' && j.delta) {
