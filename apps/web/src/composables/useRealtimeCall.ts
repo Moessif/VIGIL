@@ -24,6 +24,8 @@ registerProcessor('capture-processor', CaptureProcessor);
 const PLAYBACK_PROCESSOR = `
 class PlaybackProcessor extends AudioWorkletProcessor {
   constructor() { super(); this.bufs = []; this.port.onmessage = (e) => {
+    // 'clear' 消息：立即清空播放缓冲（用户打断时让对方马上停话）
+    if (e.data === 'clear') { this.bufs = []; return; }
     if (e.data instanceof ArrayBuffer) this.bufs.push(new Int16Array(e.data));
   }; }
   process(_, outputs) {
@@ -174,8 +176,15 @@ export function useRealtimeCall() {
             if (t === 'response.audio_transcript.delta') addDelta('ai', j.delta || '');
             else if (t === 'response.audio_transcript.done') endTurn();
             else if (t === 'response.done') endTurn();
-            // 用户（我）开口 → 预建空气泡占位，锁定位置
-            else if (t === 'input_audio_buffer.speech_started') startUserTurn();
+            // 用户（我）开口 → 预建空气泡占位 + 立即清空对方播放缓冲（马上停话）
+            else if (t === 'input_audio_buffer.speech_started') {
+              startUserTurn();
+              playbackNode?.port.postMessage('clear');
+            }
+            // 新响应开始 → 清掉可能残留的旧音频，避免"旧话说完才说新话"
+            else if (t === 'response.created') {
+              playbackNode?.port.postMessage('clear');
+            }
             // 用户（我）的转写（ASR）——增量与完整事件都兼容，只增不减
             else if (t === 'conversation.item.input_audio_transcription.delta') {
               const d = typeof j.delta === 'string' ? j.delta : typeof j.text === 'string' ? j.text : '';
