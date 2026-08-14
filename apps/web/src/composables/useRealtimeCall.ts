@@ -68,6 +68,7 @@ export function useRealtimeCall() {
   let captureSource: MediaStreamAudioSourceNode | null = null;
   let captureNode: AudioWorkletNode | null = null;
   let playbackNode: AudioWorkletNode | null = null;
+  let playbackGain: GainNode | null = null;
 
   // 由气泡推导转写（保证气泡与转写永远一致）
   const userTranscript = computed(() =>
@@ -142,19 +143,28 @@ export function useRealtimeCall() {
         URL.createObjectURL(new Blob([PLAYBACK_PROCESSOR], { type: 'application/javascript' })),
       );
       micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       captureSource = captureCtx.createMediaStreamSource(micStream);
       captureNode = new AudioWorkletNode(captureCtx, 'capture-processor');
       captureSource.connect(captureNode);
       playbackNode = new AudioWorkletNode(playbackCtx, 'playback-processor');
-      playbackNode.connect(playbackCtx.destination);
+      // 降低回放音量（0.65），减少扬声器声音被麦克风拾取造成的"AI 听到自己说话"
+      playbackGain = playbackCtx.createGain();
+      playbackGain.gain.value = 0.65;
+      playbackNode.connect(playbackGain);
+      playbackGain.connect(playbackCtx.destination);
 
       // 2) 音频就绪后再建 WebSocket，并立即挂回调
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const qs = new URLSearchParams({
         instructions: opts.instructions,
-        voice: opts.voice || 'longanhuan_v3.6',
+        voice: opts.voice || 'longanlingxin',
       });
       ws = new WebSocket(`${proto}://${location.host}/api/realtime-call?${qs.toString()}`);
       ws.binaryType = 'arraybuffer';
@@ -238,6 +248,7 @@ export function useRealtimeCall() {
     try { captureSource?.disconnect(); } catch { /* */ }
     try { captureNode?.disconnect(); } catch { /* */ }
     try { playbackNode?.disconnect(); } catch { /* */ }
+    try { playbackGain?.disconnect(); } catch { /* */ }
     try { micStream?.getTracks().forEach((t) => t.stop()); } catch { /* */ }
     try { ws?.close(); } catch { /* */ }
     try { captureCtx?.close(); } catch { /* */ }
@@ -249,6 +260,7 @@ export function useRealtimeCall() {
     captureSource = null;
     captureNode = null;
     playbackNode = null;
+    playbackGain = null;
     currentRole = null;
     isActive.value = false;
     connected.value = false;

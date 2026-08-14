@@ -48,8 +48,9 @@ export function attachRealtimeGateway(server: Server, opts: RealtimeGatewayOptio
             instructions,
             voice,
             // server_vad + silence_duration_ms：停顿宽容度可调（1200ms 给足句间停顿），
-            // 同时支持用户说话打断 AI 播报（barge-in）
-            turn_detection: { type: 'server_vad', threshold: 0.5, silence_duration_ms: 1200 },
+            // 同时支持用户说话打断 AI 播报（barge-in）。
+            // threshold 0.6：比默认 0.5 稍不敏感，减少扬声器回声被误判为用户说话
+            turn_detection: { type: 'server_vad', threshold: 0.6, silence_duration_ms: 1200 },
             // 千问实时语音：输入 pcm 16kHz 16bit 单声道；输出 pcm 24kHz 16bit 单声道
             input_audio_format: 'pcm',
             output_audio_format: 'pcm',

@@ -55,18 +55,22 @@ export async function qwenImage(
 }
 
 // ---------------- 语音合成：qwen-audio-3.0-tts-plus（百炼原生 HTTP） ----------------
-// 剧本 DSL 中的语义音色 key → 真实音色名（更多音色见 Qwen-Audio-TTS 音色列表）
+// 剧本 DSL 中的语义音色 key → 真实音色名
+// qwen-audio-3.0-tts-plus 官方音色：longanlingxin（女·知心温暖音）、longanlufeng（男·明亮开朗音）
 const VOICE_MAP: Record<string, string> = {
-  female_middle: 'longanhuan_v3.6',
-  female_young: 'longanhuan_v3.6',
-  male_young: 'longanhuan_v3.6',
-  male_middle: 'longanhuan_v3.6',
+  female_middle: 'longanlingxin',
+  female_young: 'longanlingxin',
+  male_young: 'longanlufeng',
+  male_middle: 'longanlufeng',
 };
-const DEFAULT_VOICE = 'longanhuan_v3.6';
+const DEFAULT_VOICE = 'longanlingxin';
 
 export function resolveVoice(key?: string): string {
   if (!key) return DEFAULT_VOICE;
-  return VOICE_MAP[key] || (key.includes('_v3') ? key : DEFAULT_VOICE);
+  if (VOICE_MAP[key]) return VOICE_MAP[key];
+  // 已经是真实音色名（long 开头）则直接使用
+  if (/^long/i.test(key)) return key;
+  return DEFAULT_VOICE;
 }
 
 export async function qwenTts(
