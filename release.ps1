@@ -82,8 +82,8 @@ git tag $newTag 2>$null
 
 $remote = git remote get-url origin 2>$null
 if ($remote) {
-  git push origin HEAD --tags 2>&1 | Out-Null
-  $pushed = $true
+  git push origin HEAD --tags | Out-Null
+  $pushed = ($LASTEXITCODE -eq 0)
 } else {
   $pushed = $false
 }
