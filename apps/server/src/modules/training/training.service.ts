@@ -109,7 +109,8 @@ export class TrainingService {
     }
 
     const turn = this.buildTurn(state, script, messages);
-    return { sessionId, scenarioId, ...turn };
+    // 通讯录：训练开始即下发给前端，右侧手机面板常驻展示
+    return { sessionId, scenarioId, contacts: script.contacts ?? [], ...turn };
   }
 
   async reply(userId: string, sessionId: string, dto: { text?: string; optionId?: string }) {

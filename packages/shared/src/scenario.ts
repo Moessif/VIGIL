@@ -39,11 +39,12 @@ export interface EndingDef {
   description: string;
 }
 
-/** 通讯录联系人：通话中可在右侧面板选择拨打 */
+/** 通讯录联系人：训练界面右侧手机面板中展示，可点选拨打 */
 export interface Contact {
   key: string;
   name: string; // 显示名，如 "市人民医院"
   description?: string; // 备注，如 "急诊科"
+  phone?: string; // 显示用电话号码
   persona: string; // 接听后该角色的设定（含重要事实）
   voice?: string; // 语义音色 key
   opening: string; // 接听后的开场白

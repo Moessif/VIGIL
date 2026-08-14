@@ -7,6 +7,7 @@ import type {
   AuthResponse,
   CaseDetail,
   ChoiceOption,
+  Contact,
   EndingResult,
   RecordItem,
   Role,
@@ -27,6 +28,7 @@ export interface TrainingTurn {
 export interface TrainingStart extends TrainingTurn {
   sessionId: string;
   scenarioId: string;
+  contacts: Contact[];
 }
 
 const d = <T>(p: Promise<{ data: T }>) => p.then((r) => r.data);

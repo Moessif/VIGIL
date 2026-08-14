@@ -85,6 +85,7 @@ async function startSession() {
     ]);
     scenarioTitle.value = summary.title;
     fraudType.value = summary.fraudType;
+    scenarioContacts.value = start.contacts || [];
     applyTurn(start);
   } catch (e) {
     error.value = errMsg(e);
@@ -136,14 +137,13 @@ async function run(fn: () => Promise<void>) {
   }
 }
 
-const callContacts = ref<Contact[]>([]);
+const scenarioContacts = ref<Contact[]>([]);
 const showContacts = ref(false);
 
 function answerCall() {
   const call = incomingCall.value;
   if (!call) return;
   callerName.value = call.speaker || '对方';
-  callContacts.value = (call.meta?.contacts as Contact[]) || [];
   showContacts.value = false;
   incomingCall.value = null;
   // 不再播放预生成的 TTS（避免被麦克风回采造成回声/不同步）。
@@ -187,11 +187,11 @@ function buildContactInstructions(c: Contact): string {
   return parts.filter(Boolean).join('\n');
 }
 
-/** 通讯录拨打：切换当前通话到所选联系人 */
+/** 通讯录拨打：任何时候（含未在通话中）都可拨打所选联系人 */
 function dialContact(c: Contact) {
-  if (!rtActive.value && !incomingCall.value) return;
   showContacts.value = false;
   callerName.value = c.name;
+  incomingCall.value = null;
   rtStop();
   rtStart({
     instructions: buildContactInstructions(c),
@@ -353,8 +353,9 @@ onMounted(startSession);
       </div>
     </header>
 
-    <!-- 聊天区 -->
-    <div ref="scrollEl" class="flex-1 overflow-y-auto px-4 py-5">
+    <div class="flex-1 flex min-h-0">
+      <!-- 聊天区 -->
+      <div ref="scrollEl" class="flex-1 overflow-y-auto px-4 py-5">
       <div class="max-w-2xl mx-auto space-y-4">
         <p v-if="error" class="text-sm text-red-600 text-center">{{ error }}</p>
 
@@ -435,6 +436,54 @@ onMounted(startSession);
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 右侧：手机通讯录（常驻，模拟真实手机） -->
+    <aside class="hidden lg:flex flex-col items-center px-4 py-6 border-l border-slate-200 bg-slate-100 w-[21rem] shrink-0 overflow-y-auto">
+      <!-- 手机边框模型 -->
+      <div class="relative bg-slate-900 rounded-[2.6rem] p-3 shadow-2xl w-64 shrink-0">
+        <!-- 听筒开孔 -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 w-16 h-1.5 bg-slate-700 rounded-full z-10"></div>
+        <!-- 侧边按键 -->
+        <div class="absolute -right-[2px] top-24 w-[3px] h-12 bg-slate-700 rounded-r"></div>
+        <!-- 屏幕 -->
+        <div class="bg-white rounded-[2rem] overflow-hidden flex flex-col h-[26rem]">
+          <!-- 状态栏 -->
+          <div class="px-5 pt-3 pb-2 flex justify-between text-[10px] text-slate-500 border-b border-slate-100">
+            <span>09:41</span>
+            <span>📶 🔋</span>
+          </div>
+          <!-- 标题 -->
+          <div class="px-4 py-2.5 text-sm font-bold text-slate-800 border-b border-slate-100">通讯录</div>
+          <!-- 联系人列表 -->
+          <div class="flex-1 overflow-y-auto">
+            <button
+              v-for="c in scenarioContacts"
+              :key="c.key"
+              class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 border-b border-slate-50 transition-colors"
+              @click="dialContact(c)"
+            >
+              <div class="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-sm shrink-0">
+                {{ c.name.slice(0, 1) }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-slate-800 truncate">{{ c.name }}</div>
+                <div class="text-xs text-slate-400 truncate">{{ c.phone || c.description || '' }}</div>
+              </div>
+              <div class="text-emerald-500 text-base shrink-0">📞</div>
+            </button>
+            <div v-if="scenarioContacts.length === 0" class="p-6 text-center text-xs text-slate-400">
+              本情景暂无通讯录
+            </div>
+          </div>
+          <!-- 底部 Home 指示条 -->
+          <div class="py-2 flex justify-center border-t border-slate-100">
+            <div class="w-24 h-1 bg-slate-300 rounded-full"></div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3 text-xs text-slate-500 text-center">点击联系人即可拨打电话</div>
+    </aside>
     </div>
 
     <!-- 底部操作区 -->
@@ -533,7 +582,7 @@ onMounted(startSession);
         <div class="mt-4 text-2xl font-bold">{{ callerName || '对方' }}</div>
         <div class="mt-1 text-sm text-slate-400">{{ callElapsed }}</div>
         <button
-          v-if="callContacts.length"
+          v-if="scenarioContacts.length"
           class="absolute top-6 right-5 px-3 py-2 rounded-xl bg-slate-700/60 hover:bg-slate-600 text-sm"
           @click="showContacts = !showContacts"
         >
@@ -570,7 +619,7 @@ onMounted(startSession);
             通讯录
             <button class="text-slate-400 hover:text-white" @click="showContacts = false">✕</button>
           </div>
-          <div v-for="c in callContacts" :key="c.key" class="bg-slate-800/70 rounded-xl p-3 fade-up">
+          <div v-for="c in scenarioContacts" :key="c.key" class="bg-slate-800/70 rounded-xl p-3 fade-up">
             <div class="flex items-center justify-between gap-2">
               <div class="min-w-0">
                 <div class="text-sm font-medium truncate">{{ c.name }}</div>
