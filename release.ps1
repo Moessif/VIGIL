@@ -75,14 +75,25 @@ if (Test-Path $changelogFile) {
 }
 [System.IO.File]::WriteAllText($changelogFile, $newContent, $utf8)
 
-# ---- git commit + tag ----
+# ---- git commit + tag + push ----
 git add -A
 git commit -m "release: $newTag" --allow-empty | Out-Null
 git tag $newTag 2>$null
+
+$remote = git remote get-url origin 2>$null
+if ($remote) {
+  git push origin HEAD --tags 2>&1 | Out-Null
+  $pushed = $true
+} else {
+  $pushed = $false
+}
 
 Write-Host ''
 Write-Host "=== Released $newTag ===" -ForegroundColor Green
 Write-Host "Backup:   $zipPath"
 Write-Host "Changelog:$changelogFile"
-Write-Host ''
-Write-Host 'To publish to GitHub: git remote add origin <repo-url>; git push -u origin main --tags'
+if ($pushed) {
+  Write-Host "GitHub:   已推送 origin"
+} else {
+  Write-Host 'GitHub:   未配置远程仓库，跳过推送（git remote add origin <url> 后手动 push）'
+}
