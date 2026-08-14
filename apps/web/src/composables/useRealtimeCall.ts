@@ -62,9 +62,10 @@ export function useRealtimeCall() {
   let currentRole: 'ai' | 'user' | null = null;
 
   let ws: WebSocket | null = null;
-  let audioCtx: AudioContext | null = null;
+  let captureCtx: AudioContext | null = null;
+  let playbackCtx: AudioContext | null = null;
   let micStream: MediaStream | null = null;
-  let source: MediaStreamAudioSourceNode | null = null;
+  let captureSource: MediaStreamAudioSourceNode | null = null;
   let captureNode: AudioWorkletNode | null = null;
   let playbackNode: AudioWorkletNode | null = null;
 
@@ -106,21 +107,23 @@ export function useRealtimeCall() {
     currentRole = null;
     try {
       // 1) 先建立音频管线（获取麦克风授权可能较慢）
-      audioCtx = new AudioContext({ sampleRate: 24000 });
-      await audioCtx.audioWorklet.addModule(
+      // 千问实时语音要求：输入 pcm 16kHz、输出 pcm 24kHz —— 用两个独立 AudioContext 保证采样率正确
+      captureCtx = new AudioContext({ sampleRate: 16000 });
+      await captureCtx.audioWorklet.addModule(
         URL.createObjectURL(new Blob([CAPTURE_PROCESSOR], { type: 'application/javascript' })),
       );
-      await audioCtx.audioWorklet.addModule(
+      playbackCtx = new AudioContext({ sampleRate: 24000 });
+      await playbackCtx.audioWorklet.addModule(
         URL.createObjectURL(new Blob([PLAYBACK_PROCESSOR], { type: 'application/javascript' })),
       );
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
-      source = audioCtx.createMediaStreamSource(micStream);
-      captureNode = new AudioWorkletNode(audioCtx, 'capture-processor');
-      playbackNode = new AudioWorkletNode(audioCtx, 'playback-processor');
-      playbackNode.connect(audioCtx.destination);
-      source.connect(captureNode);
+      captureSource = captureCtx.createMediaStreamSource(micStream);
+      captureNode = new AudioWorkletNode(captureCtx, 'capture-processor');
+      captureSource.connect(captureNode);
+      playbackNode = new AudioWorkletNode(playbackCtx, 'playback-processor');
+      playbackNode.connect(playbackCtx.destination);
 
       // 2) 音频就绪后再建 WebSocket，并立即挂回调
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -190,16 +193,18 @@ export function useRealtimeCall() {
 
   function stop() {
     try { captureNode?.port.close(); } catch { /* */ }
-    try { source?.disconnect(); } catch { /* */ }
+    try { captureSource?.disconnect(); } catch { /* */ }
     try { captureNode?.disconnect(); } catch { /* */ }
     try { playbackNode?.disconnect(); } catch { /* */ }
     try { micStream?.getTracks().forEach((t) => t.stop()); } catch { /* */ }
     try { ws?.close(); } catch { /* */ }
-    try { audioCtx?.close(); } catch { /* */ }
+    try { captureCtx?.close(); } catch { /* */ }
+    try { playbackCtx?.close(); } catch { /* */ }
     ws = null;
-    audioCtx = null;
+    captureCtx = null;
+    playbackCtx = null;
     micStream = null;
-    source = null;
+    captureSource = null;
     captureNode = null;
     playbackNode = null;
     currentRole = null;

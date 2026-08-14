@@ -45,10 +45,12 @@ export function attachRealtimeGateway(server: Server, opts: RealtimeGatewayOptio
           session: {
             instructions,
             voice,
-            // smart_turn：融合声学与语义判断轮次边界，支持高质量打断（用户说话可中断 AI 播报）
-            turn_detection: { type: 'smart_turn' },
-            input_audio_format: 'pcm16',
-            output_audio_format: 'pcm16',
+            // server_vad + silence_duration_ms：停顿宽容度可调（1200ms 给足句间停顿），
+            // 同时支持用户说话打断 AI 播报（barge-in）
+            turn_detection: { type: 'server_vad', threshold: 0.5, silence_duration_ms: 1200 },
+            // 千问实时语音：输入 pcm 16kHz 16bit 单声道；输出 pcm 24kHz 16bit 单声道
+            input_audio_format: 'pcm',
+            output_audio_format: 'pcm',
           },
         }),
       );
