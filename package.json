@@ -1,0 +1,20 @@
+{
+  "name": "jingxin-huhang",
+  "version": "1.0.0",
+  "private": true,
+  "description": "警心护航 —— 沉浸式反诈科普平台",
+  "scripts": {
+    "predev": "pnpm --filter @police/shared build",
+    "dev": "concurrently -n server,web -c blue,green \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev:server": "pnpm --filter @police/server dev",
+    "dev:web": "pnpm --filter @police/web dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @police/server start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

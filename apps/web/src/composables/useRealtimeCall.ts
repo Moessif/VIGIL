@@ -1,0 +1,215 @@
+import { ref } from 'vue';
+
+// 浏览器麦克风 → PCM16 采集处理器
+const CAPTURE_PROCESSOR = `
+class CaptureProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const input = inputs[0];
+    if (input && input[0]) {
+      const ch = input[0];
+      const buf = new Int16Array(ch.length);
+      for (let i = 0; i < ch.length; i++) {
+        const s = Math.max(-1, Math.min(1, ch[i]));
+        buf[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      this.port.postMessage(buf.buffer, [buf.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor('capture-processor', CaptureProcessor);
+`;
+
+// PCM16 → 扬声器回放处理器
+const PLAYBACK_PROCESSOR = `
+class PlaybackProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this.bufs = []; this.port.onmessage = (e) => {
+    if (e.data instanceof ArrayBuffer) this.bufs.push(new Int16Array(e.data));
+  }; }
+  process(_, outputs) {
+    const out = outputs[0];
+    if (!out || !out[0]) return true;
+    const ch = out[0];
+    let idx = 0;
+    while (idx < ch.length && this.bufs.length) {
+      let b = this.bufs[0];
+      const n = Math.min(b.length, ch.length - idx);
+      for (let i = 0; i < n; i++) ch[idx + i] = b[i] / 0x8000;
+      idx += n;
+      this.bufs[0] = n === b.length ? null : b.subarray(n);
+      if (this.bufs[0] === null) this.bufs.shift();
+    }
+    for (let i = idx; i < ch.length; i++) ch[i] = 0;
+    return true;
+  }
+}
+registerProcessor('playback-processor', PlaybackProcessor);
+`;
+
+export interface CallBubble {
+  role: 'ai' | 'user';
+  text: string;
+}
+
+export function useRealtimeCall() {
+  const isActive = ref(false);
+  const connected = ref(false);
+  const bubbles = ref<CallBubble[]>([]);
+  const userTranscript = ref('');
+  const aiTranscript = ref('');
+  const error = ref('');
+
+  let currentRole: 'ai' | 'user' | null = null;
+
+  let ws: WebSocket | null = null;
+  let audioCtx: AudioContext | null = null;
+  let micStream: MediaStream | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let captureNode: AudioWorkletNode | null = null;
+  let playbackNode: AudioWorkletNode | null = null;
+
+  function addDelta(role: 'ai' | 'user', delta: string) {
+    if (!delta) return;
+    if (role === 'ai') aiTranscript.value += delta;
+    else userTranscript.value += delta;
+    // 离散气泡：同一角色连续增量追加到最后一个气泡，角色切换则新建气泡
+    const last = bubbles.value[bubbles.value.length - 1];
+    if (currentRole === role && last && last.role === role) {
+      last.text += delta;
+    } else {
+      bubbles.value.push({ role, text: delta });
+      currentRole = role;
+    }
+  }
+
+  function overwriteLast(role: 'ai' | 'user', text: string) {
+    if (!text) return;
+    for (let i = bubbles.value.length - 1; i >= 0; i--) {
+      if (bubbles.value[i].role === role) {
+        bubbles.value[i] = { role, text };
+        return;
+      }
+    }
+    bubbles.value.push({ role, text });
+  }
+
+  function endTurn() {
+    currentRole = null;
+  }
+
+  async function start(opts: { instructions: string; voice?: string }) {
+    stop();
+    error.value = '';
+    userTranscript.value = '';
+    aiTranscript.value = '';
+    bubbles.value = [];
+    currentRole = null;
+    try {
+      // 1) 先建立音频管线（获取麦克风授权可能较慢）
+      audioCtx = new AudioContext({ sampleRate: 24000 });
+      await audioCtx.audioWorklet.addModule(
+        URL.createObjectURL(new Blob([CAPTURE_PROCESSOR], { type: 'application/javascript' })),
+      );
+      await audioCtx.audioWorklet.addModule(
+        URL.createObjectURL(new Blob([PLAYBACK_PROCESSOR], { type: 'application/javascript' })),
+      );
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+      source = audioCtx.createMediaStreamSource(micStream);
+      captureNode = new AudioWorkletNode(audioCtx, 'capture-processor');
+      playbackNode = new AudioWorkletNode(audioCtx, 'playback-processor');
+      playbackNode.connect(audioCtx.destination);
+      source.connect(captureNode);
+
+      // 2) 音频就绪后再建 WebSocket，并立即挂回调
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const qs = new URLSearchParams({
+        instructions: opts.instructions,
+        voice: opts.voice || 'longanhuan_v3.6',
+      });
+      ws = new WebSocket(`${proto}://${location.host}/api/realtime-call?${qs.toString()}`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        connected.value = true;
+        isActive.value = true;
+      };
+      ws.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          try {
+            const j = JSON.parse(e.data);
+            const t = j.type || '';
+            if (t === 'error') {
+              error.value = j.message || j.error?.message || '实时语音错误';
+              return;
+            }
+            // 对方（AI）的转写
+            if (t === 'response.audio_transcript.delta') addDelta('ai', j.delta || '');
+            else if (t === 'response.audio_transcript.done') endTurn();
+            // 用户（我）的转写（ASR）——兼容多种事件名
+            else if (t === 'conversation.item.input_audio_transcription.delta') addDelta('user', j.delta || '');
+            else if (t === 'conversation.item.input_audio_transcription.completed') {
+              overwriteLast('user', j.transcript || '');
+              endTurn();
+            } else if (t === 'input_audio_buffer.committed') endTurn();
+            else if (t === 'response.done') endTurn();
+
+            // 千问实时语音的音频以 base64 内嵌在 JSON 事件中，解码为 PCM16 回放
+            if (t === 'response.audio.delta' && j.delta) {
+              const bin = atob(j.delta);
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              const pcm = new Int16Array(bytes.buffer);
+              playbackNode?.port.postMessage(pcm.buffer, [pcm.buffer]);
+            }
+          } catch {
+            /* ignore */
+          }
+        } else {
+          playbackNode?.port.postMessage(e.data);
+        }
+      };
+      ws.onerror = () => {
+        error.value = '实时语音连接失败';
+      };
+      ws.onclose = () => {
+        connected.value = false;
+        isActive.value = false;
+      };
+
+      // 3) 麦克风采集 → 发送到网关
+      captureNode.port.onmessage = (e) => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
+      };
+    } catch (e) {
+      error.value = (e as Error).message || '无法启动实时语音（需麦克风权限）';
+      stop();
+    }
+  }
+
+  function stop() {
+    try { captureNode?.port.close(); } catch { /* */ }
+    try { source?.disconnect(); } catch { /* */ }
+    try { captureNode?.disconnect(); } catch { /* */ }
+    try { playbackNode?.disconnect(); } catch { /* */ }
+    try { micStream?.getTracks().forEach((t) => t.stop()); } catch { /* */ }
+    try { ws?.close(); } catch { /* */ }
+    try { audioCtx?.close(); } catch { /* */ }
+    ws = null;
+    audioCtx = null;
+    micStream = null;
+    source = null;
+    captureNode = null;
+    playbackNode = null;
+    currentRole = null;
+    isActive.value = false;
+    connected.value = false;
+  }
+
+  function getFullTranscript(): string {
+    return bubbles.value.map((b) => `${b.role === 'ai' ? '对方' : '用户'}：${b.text.trim()}`).join('\n');
+  }
+
+  return { start, stop, isActive, connected, bubbles, userTranscript, aiTranscript, getFullTranscript, error };
+}
